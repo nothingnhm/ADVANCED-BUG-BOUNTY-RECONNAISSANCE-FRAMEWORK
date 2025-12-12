@@ -106,3 +106,41 @@ cat report/summary.md
 ```
 
 This report provides key statistics and highlights the top critical findings discovered by `nuclei`.
+
+## 📂 Output Structure
+
+All results are stored in a dedicated, unique directory under the base path `./recon_workspace/`. The name of the final workspace folder is based on the target domain and the execution time (e.g., `target.com_YYYYMMDD_HHMM`).
+
+This organized structure ensures you can easily review the data for each phase of the reconnaissance.
+
+### Directory Hierarchy
+
+```
+recon_workspace/
+└── target.com_20251212_1800/  # Unique Workspace Directory
+    ├── live/               # Live/Accessible hosts and URLs
+    │   ├── alive_hosts.txt
+    │   └── httpx_full.json
+    ├── subdomains/         # Raw Subdomain Enumeration results
+    │   └── all_subs.txt
+    ├── urls/               # All historical and crawled URLs
+    │   └── all_urls.txt
+    ├── params/             # Discovered URL parameters
+    │   └── arjun.json
+    ├── scans/              # Network and Port Scanning results
+    │   ├── ips.txt
+    │   └── nmap.txt
+    ├── vulns/              # Raw vulnerability findings
+    │   └── nuclei_results.txt
+    └── report/             # Final Summary Document
+        └── summary.md
+```
+
+### Key Files Explained
+
+| File Name | Content | Purpose |
+| :--- | :--- | :--- |
+| `summary.md` | Final Markdown report. | Provides a high-level summary of statistics and critical findings. |
+| `alive_hosts.txt` | List of confirmed live domains/subdomains. | Input for subsequent URL and scanning phases. |
+| `all_urls.txt` | Deduplicated list of all URLs found (GAU, Wayback, Katana). | The primary input for vulnerability scanning (`nuclei`). |
+| `nuclei_results.txt` | Raw output from Nuclei. | Detailed, line-by-line list of all reported vulnerabilities and misconfigurations. |
