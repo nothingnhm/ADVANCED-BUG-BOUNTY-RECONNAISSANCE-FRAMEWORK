@@ -1,0 +1,12 @@
+# .gitignore
+
+# 1. Tool Output Directory (Crucial to ignore large scan data)
+recon_workspace/
+
+# 2. Log and Temporary files
+*.log
+*.tmp
+.DS_Store # macOS specific file
+
+# 3. Compiled binaries (If you ever compile the GO dependencies locally)
+/bin/
