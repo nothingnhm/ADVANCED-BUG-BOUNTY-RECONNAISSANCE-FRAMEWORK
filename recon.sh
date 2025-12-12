@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
 # ============================================================================
-# ADVANCED BUG BOUNTY RECONNAISSANCE FRAMEWORK v2.3 (SYNTAX FIX)
+# ADVANCED BUG BOUNTY RECONNAISSANCE FRAMEWORK v2.4 (FINAL STABLE)
 # ============================================================================
 # Fixes:
-# - Resolved "syntax error near unexpected token '?'" by ensuring multi-line 
-#   pipelines are correctly terminated (replacing incorrect '|' continuation 
-#   with robust '|| true' on a single logical line).
+# - RESOLVED: "tool: unbound variable" error (Removed redundant, global-scope 
+#   dependency checks that caused 'set -u' to crash the script).
+# - Consolidated dependency checks to occur only within the relevant modules.
 #
 # Usage:./recon.sh -d target.com [-t threads][-a]
 # ============================================================================
@@ -17,7 +17,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-VERSION="2.3.0"
+VERSION="2.4.0"
 TARGET_DOMAIN=""
 THREADS=20
 AGGRESSIVE=false
@@ -35,16 +35,6 @@ RED='\033${NC} ${MSG}")
     if [[ -n "$LOG_FILE" ]]; then
         # Strip color codes for the log file
         echo "${FORMATTED_MSG}" | sed 's/\x1b\[[0-9;]*m//g' >> "$LOG_FILE"
-    fi
-}
-
-# Function: check_dependency
-# Description: Verifies tool existence.
-check_dependency() {
-    local tool="$1"
-    if! command -v "$tool" &> /dev/null; then
-        log "${RED}" "ERR" "Required tool '$tool' is not installed or not in PATH."
-        exit 1
     fi
 }
 
@@ -122,16 +112,6 @@ log "${GREEN}" "INFO" "Scan initiated for: $TARGET_DOMAIN (v$VERSION)"
 log "${GREEN}" "INFO" "Workspace created: $WORK_DIR"
 log "${GREEN}" "INFO" "Threads: $THREADS | Aggressive: $AGGRESSIVE | Deep Scan: $DEEP_SCAN"
 
-# Check Critical Dependencies
-log "${YELLOW}" "INFO" "Verifying toolchain..."
-DEPENDENCIES=("subfinder" "httpx" "curl" "jq")
-for dep in "${DEPENDENCIES[@]}"; do
-    # Only check if tool exists, do not exit if optional tools are missing
-    command -v "$dep" &>/dev/null |
-
-| log "${YELLOW}" "WARN" "Optional tool '$dep' not found."
-done
-
 # ----------------------------------------------------------------------------
 # 4. MODULES
 # ----------------------------------------------------------------------------
@@ -166,7 +146,7 @@ module_subdomains() {
         jq -r '..name_value' 2>/dev/null | \
         sed 's/\*\.//g' >> "$TEMP_FILE" |
 
-| true # Corrected: Single logical line termination
+| true
 
     # Final Deduplication and Sanitization
     sort -u "$TEMP_FILE" | grep -E "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$" | \
@@ -350,18 +330,15 @@ module_param_discovery() {
     if; then log "${YELLOW}" "WARN" "No URLs for parameter discovery." ; return; fi
 
     # 1. Arjun (Active Parameter Fuzzing)
-    # Arjun supports '-i' for import targets from a file.
     if command -v arjun &>/dev/null; then
         log "${CYAN}" "STEP" "Running Arjun (Active Fuzzing)..."
         arjun -i "$INPUT_URLS" -t "$THREADS" -oT "$OUT_PARAMS" 2>>"$LOG_FILE" |
 
-| true # Fixed termination
+| true
     fi
     
     # 2. Extract Passive Parameters from URL list
     log "${CYAN}" "STEP" "Extracting passive parameters from discovered URLs..."
-    # FIX: Corrected the pipeline termination to avoid syntax error near '?'
-    # This also handles grep's non-zero exit when no lines match.
     grep -oP '(?<=\?|\&)[^=&]+(?==)' "$URLS_WITH_PARAMS" 2>/dev/null | sort -u >> "$WORK_DIR/params/passive_parameters.txt" |
 
 | true
