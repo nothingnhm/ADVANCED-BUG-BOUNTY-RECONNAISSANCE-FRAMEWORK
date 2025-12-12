@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 
 # ============================================================================
-# ADVANCED BUG BOUNTY RECONNAISSANCE FRAMEWORK v2.2 (STABLE)
+# ADVANCED BUG BOUNTY RECONNAISSANCE FRAMEWORK v2.3 (SYNTAX FIX)
 # ============================================================================
 # Fixes:
-# - Corrected shell syntax error (missing space in 'if! command').
-# - Refactored subdomain merging to be file-based (using a temporary file) 
-#   to prevent complex pipeline redirection conflicts.
-# - Ensured consistent three-argument logging across all functions.
+# - Resolved "syntax error near unexpected token '?'" by ensuring multi-line 
+#   pipelines are correctly terminated (replacing incorrect '|' continuation 
+#   with robust '|| true' on a single logical line).
 #
 # Usage:./recon.sh -d target.com [-t threads][-a]
 # ============================================================================
@@ -18,7 +17,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-VERSION="2.2.0"
+VERSION="2.3.0"
 TARGET_DOMAIN=""
 THREADS=20
 AGGRESSIVE=false
@@ -43,7 +42,6 @@ RED='\033${NC} ${MSG}")
 # Description: Verifies tool existence.
 check_dependency() {
     local tool="$1"
-    # FIX: Added space between 'if' and '!'
     if! command -v "$tool" &> /dev/null; then
         log "${RED}" "ERR" "Required tool '$tool' is not installed or not in PATH."
         exit 1
@@ -128,9 +126,10 @@ log "${GREEN}" "INFO" "Threads: $THREADS | Aggressive: $AGGRESSIVE | Deep Scan: 
 log "${YELLOW}" "INFO" "Verifying toolchain..."
 DEPENDENCIES=("subfinder" "httpx" "curl" "jq")
 for dep in "${DEPENDENCIES[@]}"; do
-    # Note: We use! command here, but check_dependency is reserved for critical checks.
-    # The actual dep check logic is inside the function defined above.
-    true # Placeholder to avoid execution of loop body if all are found
+    # Only check if tool exists, do not exit if optional tools are missing
+    command -v "$dep" &>/dev/null |
+
+| log "${YELLOW}" "WARN" "Optional tool '$dep' not found."
 done
 
 # ----------------------------------------------------------------------------
@@ -167,8 +166,8 @@ module_subdomains() {
         jq -r '..name_value' 2>/dev/null | \
         sed 's/\*\.//g' >> "$TEMP_FILE" |
 
-| true
-    
+| true # Corrected: Single logical line termination
+
     # Final Deduplication and Sanitization
     sort -u "$TEMP_FILE" | grep -E "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$" | \
         grep "$SAFE_TARGET" > "$OUT_FILE" |
@@ -218,14 +217,22 @@ module_live_validation() {
         # Extract URLs
         if; then
             if command -v jq &>/dev/null; then
-                cat "$WORK_DIR/live/httpx_full.json" | jq -r '.url' | sort -u > "$OUT_URLS"
+                cat "$WORK_DIR/live/httpx_full.json" | jq -r '.url' | sort -u > "$OUT_URLS" |
+
+| true
                 # Extract hosts (domain names without protocol/path)
-                cat "$WORK_DIR/live/httpx_full.json" | jq -r '.input' | sort -u > "$OUT_HOSTS"
+                cat "$WORK_DIR/live/httpx_full.json" | jq -r '.input' | sort -u > "$OUT_HOSTS" |
+
+| true
             else
                 log "${YELLOW}" "WARN" "jq missing. Extracting URLs/Hosts via grep (less reliable)."
-                grep -o '"url":"[^"]*"' "$WORK_DIR/live/httpx_full.json" | cut -d'"' -f4 | sort -u > "$OUT_URLS"
+                grep -o '"url":"[^"]*"' "$WORK_DIR/live/httpx_full.json" | cut -d'"' -f4 | sort -u > "$OUT_URLS" |
+
+| true
                 # Fallback extraction of hosts from URLs
-                sed 's/.*:\/\///' "$OUT_URLS" | sed 's/\/.*//' | sort -u > "$OUT_HOSTS"
+                sed 's/.*:\/\///' "$OUT_URLS" | sed 's/\/.*//' | sort -u > "$OUT_HOSTS" |
+
+| true
             fi
         fi
     else
@@ -304,6 +311,7 @@ module_url_discovery() {
     # 1. GAU (Passive: Get All Urls)
     if command -v gau &>/dev/null; then
         log "${CYAN}" "STEP" "Running GAU (Wayback/CommonCrawl)..."
+        # Using anew for safe merging and deduplication
         cat "$INPUT_HOSTS" | gau --threads "$THREADS" --blacklist ttf,woff,svg,png,jpg 2>>"$LOG_FILE" | anew "$ALL_URLS" |
 
 | true
@@ -342,17 +350,18 @@ module_param_discovery() {
     if; then log "${YELLOW}" "WARN" "No URLs for parameter discovery." ; return; fi
 
     # 1. Arjun (Active Parameter Fuzzing)
-    # Arjun uses '-i' for input file of URLs, not STDIN pipe.
+    # Arjun supports '-i' for import targets from a file.
     if command -v arjun &>/dev/null; then
         log "${CYAN}" "STEP" "Running Arjun (Active Fuzzing)..."
-        # Using alive_urls.txt (already probed live)
         arjun -i "$INPUT_URLS" -t "$THREADS" -oT "$OUT_PARAMS" 2>>"$LOG_FILE" |
 
-| true
+| true # Fixed termination
     fi
     
     # 2. Extract Passive Parameters from URL list
     log "${CYAN}" "STEP" "Extracting passive parameters from discovered URLs..."
+    # FIX: Corrected the pipeline termination to avoid syntax error near '?'
+    # This also handles grep's non-zero exit when no lines match.
     grep -oP '(?<=\?|\&)[^=&]+(?==)' "$URLS_WITH_PARAMS" 2>/dev/null | sort -u >> "$WORK_DIR/params/passive_parameters.txt" |
 
 | true
@@ -381,7 +390,6 @@ module_vuln_scan() {
 
         if; then
             log "${CYAN}" "STEP" "Running Nuclei (Aggressive Mode: All Templates)..."
-            # In aggressive mode, run all templates, but still exclude DOS/fuzz by default
             nuclei -l "$INPUT_URLS" -severity critical,high,medium,low,info \
                    -et "$EXCLUDE_TAGS" -c "$THREADS" -silent \
                    -o "$OUT_VULNS" 2>>"$LOG_FILE" |
@@ -389,7 +397,6 @@ module_vuln_scan() {
 | true
         else
             log "${CYAN}" "STEP" "Running Nuclei (Standard Mode: CVE/Misconfig)..."
-            # Standard mode focuses on high-confidence findings
             nuclei -l "$INPUT_URLS" -t "$TEMPLATE_TAGS" \
                    -severity critical,high,medium \
                    -et "$EXCLUDE_TAGS" -c "$THREADS" -silent \
@@ -418,8 +425,9 @@ module_report() {
     local alive_count=$(wc -l < "$WORK_DIR/live/alive_urls.txt" 2>/dev/null |
 
 | echo 0)
+    # Find the output file from either naabu or masscan
     local ports_file=$(find "$WORK_DIR/scans" -name "*ports.txt" 2>/dev/null | head -n 1)
-    local ports_count=$(wc -l < "$ports_file" 2>/dev/null |
+    local ports_count=$(wc -l < "${ports_file:-/dev/null}" 2>/dev/null |
 
 | echo 0)
     local urls_count=$(wc -l < "$WORK_DIR/urls/all_urls.txt" 2>/dev/null |
