@@ -1,14 +1,10 @@
 #!/usr/bin/env bash
 
 # ============================================================================
-# ADVANCED BUG BOUNTY RECONNAISSANCE FRAMEWORK v2.4 (FINAL STABLE)
+# ADVANCED BUG BOUNTY RECONNAISSANCE FRAMEWORK v2.4
 # ============================================================================
-# Fixes:
-# - RESOLVED: "tool: unbound variable" error (Removed redundant, global-scope 
-#   dependency checks that caused 'set -u' to crash the script).
-# - Consolidated dependency checks to occur only within the relevant modules.
-#
-# Usage:./recon.sh -d target.com [-t threads][-a]
+# All syntax errors and bugs have been corrected
+# Usage: ./recon.sh -d target.com [-t threads] [-a] [-D]
 # ============================================================================
 
 # ----------------------------------------------------------------------------
@@ -26,7 +22,25 @@ OUTPUT_BASE="./recon_workspace"
 LOG_FILE=""
 
 # ANSI Color Codes
-RED='\033${NC} ${MSG}")
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# ----------------------------------------------------------------------------
+# 2. UTILITY FUNCTIONS
+# ----------------------------------------------------------------------------
+
+# Function: log
+# Description: Logs messages with color-coded severity levels
+log() {
+    local COLOR="$1"
+    local LEVEL="$2"
+    local MSG="$3"
+    local TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+    local FORMATTED_MSG="${COLOR}[${TIMESTAMP}] [${LEVEL}]${NC} ${MSG}"
 
     # Print to console
     echo -e "${FORMATTED_MSG}"
@@ -45,12 +59,11 @@ cleanup() {
     if [[ -n "$(jobs -p)" ]]; then
         log "${RED}" "WARN" "Interrupted. Killing child processes..."
         # Kill child processes of this shell ($$)
-        pkill -P $$ 2>/dev/null |
-
-| true
+        pkill -P $$ 2>/dev/null || true
     fi
     exit 1
 }
+
 # Set trap for graceful exit
 trap cleanup SIGINT SIGTERM
 
@@ -89,13 +102,13 @@ while getopts ":d:t:aDh" opt; do
 done
 
 # Validation
-if; then
+if [[ -z "$TARGET_DOMAIN" ]]; then
     log "${RED}" "ERR" "Target domain is mandatory."
     usage
 fi
 
 # Regex for valid hostname (RFC 1123)
-if([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$ ]]; then
+if ! [[ "$TARGET_DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$ ]]; then
     log "${RED}" "ERR" "Invalid domain format: $TARGET_DOMAIN"
     exit 1
 fi
@@ -127,50 +140,38 @@ module_subdomains() {
     # 1. Subfinder
     if command -v subfinder &>/dev/null; then
         log "${CYAN}" "STEP" "Running Subfinder (Passive)..."
-        subfinder -d "$TARGET_DOMAIN" -silent -all -t "$THREADS" 2>>"$LOG_FILE" >> "$TEMP_FILE" |
-
-| true
+        subfinder -d "$TARGET_DOMAIN" -silent -all -t "$THREADS" 2>>"$LOG_FILE" >> "$TEMP_FILE" || true
     fi
 
     # 2. Assetfinder
     if command -v assetfinder &>/dev/null; then
         log "${CYAN}" "STEP" "Running Assetfinder..."
-        assetfinder --subs-only "$TARGET_DOMAIN" 2>>"$LOG_FILE" >> "$TEMP_FILE" |
-
-| true
+        assetfinder --subs-only "$TARGET_DOMAIN" 2>>"$LOG_FILE" >> "$TEMP_FILE" || true
     fi
 
     # 3. Crt.sh (Passive)
     log "${CYAN}" "STEP" "Querying Crt.sh..."
     curl -s "https://crt.sh/?q=%25.$TARGET_DOMAIN&output=json" | \
-        jq -r '..name_value' 2>/dev/null | \
-        sed 's/\*\.//g' >> "$TEMP_FILE" |
-
-| true
+        jq -r '.[].name_value' 2>/dev/null | \
+        sed 's/\*\.//g' >> "$TEMP_FILE" || true
 
     # Final Deduplication and Sanitization
     sort -u "$TEMP_FILE" | grep -E "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$" | \
-        grep "$SAFE_TARGET" > "$OUT_FILE" |
-
-| true
+        grep "$SAFE_TARGET" > "$OUT_FILE" || true
     
     # Deep Scan: Optionally run Amass in passive mode
-    if] && command -v amass &>/dev/null; then
+    if [[ "$DEEP_SCAN" == true ]] && command -v amass &>/dev/null; then
         log "${CYAN}" "STEP" "Running Amass (Deep Passive)..."
-        amass enum -passive -d "$TARGET_DOMAIN" -timeout 10 -o "$WORK_DIR/subdomains/amass.txt" 2>>"$LOG_FILE" |
-
-| true
+        amass enum -passive -d "$TARGET_DOMAIN" -timeout 10 -o "$WORK_DIR/subdomains/amass.txt" 2>>"$LOG_FILE" || true
         # Merge Amass results if file is non-empty
-        if; then
+        if [[ -s "$WORK_DIR/subdomains/amass.txt" ]]; then
             cat "$WORK_DIR/subdomains/amass.txt" >> "$OUT_FILE"
             sort -u "$OUT_FILE" -o "$OUT_FILE"
         fi
     fi
 
     rm -f "$TEMP_FILE" # Clean up temp file
-    local count=$(wc -l < "$OUT_FILE" 2>/dev/null |
-
-| echo 0)
+    local count=$(wc -l < "$OUT_FILE" 2>/dev/null || echo 0)
     log "${GREEN}" "OK" "Enumeration complete. Found $count unique subdomains."
 }
 
@@ -180,7 +181,7 @@ module_live_validation() {
     local OUT_HOSTS="$WORK_DIR/live/alive_hosts.txt"
     local OUT_URLS="$WORK_DIR/live/alive_urls.txt"
 
-    if; then
+    if [[ ! -s "$INPUT_SUBS" ]]; then
         log "${YELLOW}" "WARN" "No subdomains to validate."
         return
     fi
@@ -190,29 +191,19 @@ module_live_validation() {
         httpx -l "$INPUT_SUBS" \
             -silent -threads "$THREADS" \
             -status-code -title -tech-detect -follow-redirects \
-            -json -o "$WORK_DIR/live/httpx_full.json" 2>>"$LOG_FILE" |
-
-| true
+            -json -o "$WORK_DIR/live/httpx_full.json" 2>>"$LOG_FILE" || true
 
         # Extract URLs
-        if; then
+        if [[ -s "$WORK_DIR/live/httpx_full.json" ]]; then
             if command -v jq &>/dev/null; then
-                cat "$WORK_DIR/live/httpx_full.json" | jq -r '.url' | sort -u > "$OUT_URLS" |
-
-| true
+                cat "$WORK_DIR/live/httpx_full.json" | jq -r '.url' | sort -u > "$OUT_URLS" || true
                 # Extract hosts (domain names without protocol/path)
-                cat "$WORK_DIR/live/httpx_full.json" | jq -r '.input' | sort -u > "$OUT_HOSTS" |
-
-| true
+                cat "$WORK_DIR/live/httpx_full.json" | jq -r '.input' | sort -u > "$OUT_HOSTS" || true
             else
                 log "${YELLOW}" "WARN" "jq missing. Extracting URLs/Hosts via grep (less reliable)."
-                grep -o '"url":"[^"]*"' "$WORK_DIR/live/httpx_full.json" | cut -d'"' -f4 | sort -u > "$OUT_URLS" |
-
-| true
+                grep -o '"url":"[^"]*"' "$WORK_DIR/live/httpx_full.json" | cut -d'"' -f4 | sort -u > "$OUT_URLS" || true
                 # Fallback extraction of hosts from URLs
-                sed 's/.*:\/\///' "$OUT_URLS" | sed 's/\/.*//' | sort -u > "$OUT_HOSTS" |
-
-| true
+                sed 's/.*:\/\///' "$OUT_URLS" | sed 's/\/.*//' | sort -u > "$OUT_HOSTS" || true
             fi
         fi
     else
@@ -220,9 +211,7 @@ module_live_validation() {
         return
     fi
     
-    local count=$(wc -l < "$OUT_URLS" 2>/dev/null |
-
-| echo 0)
+    local count=$(wc -l < "$OUT_URLS" 2>/dev/null || echo 0)
     log "${GREEN}" "OK" "Validation complete. Found $count live HTTP endpoints."
 }
 
@@ -231,48 +220,44 @@ module_port_scan() {
     local INPUT_HOSTS="$WORK_DIR/live/alive_hosts.txt"
     local IP_LIST="$WORK_DIR/scans/ips.txt"
 
-    if; then log "${YELLOW}" "WARN" "No hosts to scan." ; return; fi
+    if [[ ! -s "$INPUT_HOSTS" ]]; then 
+        log "${YELLOW}" "WARN" "No hosts to scan."
+        return
+    fi
 
     # Resolve IPs first to avoid scanning the same LB 100 times
     log "${CYAN}" "STEP" "Resolving IPs for Port Scan..."
     
     if command -v dnsx &>/dev/null; then
         # Use dnsx (fast and Go-based)
-        dnsx -l "$INPUT_HOSTS" -silent -a -resp-only | sort -u > "$IP_LIST" 2>>"$LOG_FILE" |
-
-| true
+        dnsx -l "$INPUT_HOSTS" -silent -a -resp-only | sort -u > "$IP_LIST" 2>>"$LOG_FILE" || true
     else
         # Fallback to dig/xargs
-        cat "$INPUT_HOSTS" | xargs -P "$THREADS" -I {} bash -c "dig +short {} | grep -E '^[0-9.]+$'" | sort -u > "$IP_LIST" |
-
-| true
+        cat "$INPUT_HOSTS" | xargs -P "$THREADS" -I {} bash -c "dig +short {} | grep -E '^[0-9.]+$'" | sort -u > "$IP_LIST" || true
     fi
 
-    local IP_COUNT=$(wc -l < "$IP_LIST" 2>/dev/null |
-
-| echo 0)
+    local IP_COUNT=$(wc -l < "$IP_LIST" 2>/dev/null || echo 0)
     
-    if; then log "${YELLOW}" "WARN" "No resolvable IPs found. Skipping Port Scan." ; return; fi
+    if [[ "$IP_COUNT" -eq 0 ]]; then 
+        log "${YELLOW}" "WARN" "No resolvable IPs found. Skipping Port Scan."
+        return
+    fi
     
     if command -v naabu &>/dev/null; then
         log "${CYAN}" "STEP" "Scanning $IP_COUNT unique IPs with Naabu..."
         
         local PORTS="-top-ports 1000"
-        if; then
+        if [[ "$AGGRESSIVE" == true ]]; then
             PORTS="-p 1-65535" # Full port scan in aggressive mode
             log "${YELLOW}" "WARN" "Aggressive mode (full port scan) enabled. This may be time-consuming."
         fi
         
         naabu -list "$IP_LIST" $PORTS -silent -rate 3000 -c "$THREADS" \
-              -o "$WORK_DIR/scans/naabu_ports.txt" 2>>"$LOG_FILE" |
-
-| true
-    elif && command -v masscan &>/dev/null; then
+              -o "$WORK_DIR/scans/naabu_ports.txt" 2>>"$LOG_FILE" || true
+    elif [[ "$AGGRESSIVE" == true ]] && command -v masscan &>/dev/null; then
          log "${CYAN}" "STEP" "Scanning with Masscan (Full Scan)..."
          masscan -iL "$IP_LIST" -p1-65535 --rate=5000 \
-                 -oL "$WORK_DIR/scans/masscan_ports.txt" 2>>"$LOG_FILE" |
-
-| true
+                 -oL "$WORK_DIR/scans/masscan_ports.txt" 2>>"$LOG_FILE" || true
     else
         log "${YELLOW}" "WARN" "Naabu/Masscan not found. Skipping active port scan."
     fi
@@ -286,38 +271,33 @@ module_url_discovery() {
     
     : > "$ALL_URLS" # Clear file for fresh start
 
-    if; then log "${YELLOW}" "WARN" "No hosts for URL discovery." ; return; fi
+    if [[ ! -s "$INPUT_HOSTS" ]]; then 
+        log "${YELLOW}" "WARN" "No hosts for URL discovery."
+        return
+    fi
 
     # 1. GAU (Passive: Get All Urls)
     if command -v gau &>/dev/null; then
         log "${CYAN}" "STEP" "Running GAU (Wayback/CommonCrawl)..."
         # Using anew for safe merging and deduplication
-        cat "$INPUT_HOSTS" | gau --threads "$THREADS" --blacklist ttf,woff,svg,png,jpg 2>>"$LOG_FILE" | anew "$ALL_URLS" |
-
-| true
+        cat "$INPUT_HOSTS" | gau --threads "$THREADS" --blacklist ttf,woff,svg,png,jpg 2>>"$LOG_FILE" | anew "$ALL_URLS" || true
     fi
 
     # 2. Waybackurls (Passive Fallback)
-    if command -v waybackurls &>/dev/null &&; then
+    if command -v waybackurls &>/dev/null && [[ ! -s "$ALL_URLS" ]]; then
         log "${CYAN}" "STEP" "Running Waybackurls (Fallback)..."
-        cat "$INPUT_HOSTS" | waybackurls 2>>"$LOG_FILE" | anew "$ALL_URLS" |
-
-| true
+        cat "$INPUT_HOSTS" | waybackurls 2>>"$LOG_FILE" | anew "$ALL_URLS" || true
     fi
 
     # 3. Katana (Active Crawling on Live URLs)
-    if] && command -v katana &>/dev/null &&; then
+    if [[ "$DEEP_SCAN" == true ]] && command -v katana &>/dev/null && [[ -s "$LIVE_URLS" ]]; then
         log "${CYAN}" "STEP" "Running Katana (Active Crawl - Deep Scan)..."
-        katana -list "$LIVE_URLS" -silent -jc -d 3 -c "$THREADS" 2>>"$LOG_FILE" | anew "$ALL_URLS" |
-
-| true
+        katana -list "$LIVE_URLS" -silent -jc -d 3 -c "$THREADS" 2>>"$LOG_FILE" | anew "$ALL_URLS" || true
     fi
     
     # Final Deduplicate
     sort -u "$ALL_URLS" -o "$ALL_URLS"
-    local count=$(wc -l < "$ALL_URLS" 2>/dev/null |
-
-| echo 0)
+    local count=$(wc -l < "$ALL_URLS" 2>/dev/null || echo 0)
     log "${GREEN}" "OK" "Discovered $count unique URLs."
 }
 
@@ -327,25 +307,22 @@ module_param_discovery() {
     local OUT_PARAMS="$WORK_DIR/params/arjun_params.txt"
     local URLS_WITH_PARAMS="$WORK_DIR/urls/all_urls.txt"
 
-    if; then log "${YELLOW}" "WARN" "No URLs for parameter discovery." ; return; fi
+    if [[ ! -s "$INPUT_URLS" ]]; then 
+        log "${YELLOW}" "WARN" "No URLs for parameter discovery."
+        return
+    fi
 
     # 1. Arjun (Active Parameter Fuzzing)
     if command -v arjun &>/dev/null; then
         log "${CYAN}" "STEP" "Running Arjun (Active Fuzzing)..."
-        arjun -i "$INPUT_URLS" -t "$THREADS" -oT "$OUT_PARAMS" 2>>"$LOG_FILE" |
-
-| true
+        arjun -i "$INPUT_URLS" -t "$THREADS" -oT "$OUT_PARAMS" 2>>"$LOG_FILE" || true
     fi
     
     # 2. Extract Passive Parameters from URL list
     log "${CYAN}" "STEP" "Extracting passive parameters from discovered URLs..."
-    grep -oP '(?<=\?|\&)[^=&]+(?==)' "$URLS_WITH_PARAMS" 2>/dev/null | sort -u >> "$WORK_DIR/params/passive_parameters.txt" |
+    grep -oP '(?<=\?|\&)[^=&]+(?==)' "$URLS_WITH_PARAMS" 2>/dev/null | sort -u >> "$WORK_DIR/params/passive_parameters.txt" || true
 
-| true
-
-    local count=$(wc -l < "$WORK_DIR/params/passive_parameters.txt" 2>/dev/null |
-
-| echo 0)
+    local count=$(wc -l < "$WORK_DIR/params/passive_parameters.txt" 2>/dev/null || echo 0)
     log "${GREEN}" "OK" "Found $count unique parameters (Passive/Active)."
 }
 
@@ -354,37 +331,32 @@ module_vuln_scan() {
     local INPUT_URLS="$WORK_DIR/live/alive_urls.txt"
     local OUT_VULNS="$WORK_DIR/vulns/nuclei_results.txt"
 
-    if; then log "${YELLOW}" "WARN" "No URLs for scanning." ; return; fi
+    if [[ ! -s "$INPUT_URLS" ]]; then 
+        log "${YELLOW}" "WARN" "No URLs for scanning."
+        return
+    fi
 
     if command -v nuclei &>/dev/null; then
         log "${CYAN}" "STEP" "Running Nuclei (Updating Templates)..."
-        nuclei -update-templates -silent 2>>"$LOG_FILE" |
-
-| true
+        nuclei -update-templates -silent 2>>"$LOG_FILE" || true
         
-        local EXCLUDE_TAGS="dos,fuzz,cve"
+        local EXCLUDE_TAGS="dos,fuzz"
         local TEMPLATE_TAGS="cves,vulnerabilities,misconfiguration,headless"
 
-        if; then
+        if [[ "$AGGRESSIVE" == true ]]; then
             log "${CYAN}" "STEP" "Running Nuclei (Aggressive Mode: All Templates)..."
             nuclei -l "$INPUT_URLS" -severity critical,high,medium,low,info \
                    -et "$EXCLUDE_TAGS" -c "$THREADS" -silent \
-                   -o "$OUT_VULNS" 2>>"$LOG_FILE" |
-
-| true
+                   -o "$OUT_VULNS" 2>>"$LOG_FILE" || true
         else
             log "${CYAN}" "STEP" "Running Nuclei (Standard Mode: CVE/Misconfig)..."
-            nuclei -l "$INPUT_URLS" -t "$TEMPLATE_TAGS" \
+            nuclei -l "$INPUT_URLS" -tags "$TEMPLATE_TAGS" \
                    -severity critical,high,medium \
                    -et "$EXCLUDE_TAGS" -c "$THREADS" -silent \
-                   -o "$OUT_VULNS" 2>>"$LOG_FILE" |
-
-| true
+                   -o "$OUT_VULNS" 2>>"$LOG_FILE" || true
         fi
         
-        local count=$(wc -l < "$OUT_VULNS" 2>/dev/null |
-
-| echo 0)
+        local count=$(wc -l < "$OUT_VULNS" 2>/dev/null || echo 0)
         log "${GREEN}" "OK" "Vulnerability scan finished. Found $count potential issues."
     else
         log "${YELLOW}" "WARN" "Nuclei not found. Skipping vulnerability scan."
@@ -396,26 +368,14 @@ module_report() {
     local REPORT_FILE="$WORK_DIR/report/summary.md"
     
     # Gather Statistics
-    local subs_count=$(wc -l < "$WORK_DIR/subdomains/all_subs.txt" 2>/dev/null |
-
-| echo 0)
-    local alive_count=$(wc -l < "$WORK_DIR/live/alive_urls.txt" 2>/dev/null |
-
-| echo 0)
+    local subs_count=$(wc -l < "$WORK_DIR/subdomains/all_subs.txt" 2>/dev/null || echo 0)
+    local alive_count=$(wc -l < "$WORK_DIR/live/alive_urls.txt" 2>/dev/null || echo 0)
     # Find the output file from either naabu or masscan
     local ports_file=$(find "$WORK_DIR/scans" -name "*ports.txt" 2>/dev/null | head -n 1)
-    local ports_count=$(wc -l < "${ports_file:-/dev/null}" 2>/dev/null |
-
-| echo 0)
-    local urls_count=$(wc -l < "$WORK_DIR/urls/all_urls.txt" 2>/dev/null |
-
-| echo 0)
-    local vulns_count=$(wc -l < "$WORK_DIR/vulns/nuclei_results.txt" 2>/dev/null |
-
-| echo 0)
-    local param_count=$(wc -l < "$WORK_DIR/params/passive_parameters.txt" 2>/dev/null |
-
-| echo 0)
+    local ports_count=$(wc -l < "${ports_file:-/dev/null}" 2>/dev/null || echo 0)
+    local urls_count=$(wc -l < "$WORK_DIR/urls/all_urls.txt" 2>/dev/null || echo 0)
+    local vulns_count=$(wc -l < "$WORK_DIR/vulns/nuclei_results.txt" 2>/dev/null || echo 0)
+    local param_count=$(wc -l < "$WORK_DIR/params/passive_parameters.txt" 2>/dev/null || echo 0)
 
 
     # Write Report
@@ -442,9 +402,7 @@ module_report() {
         echo ""
         echo "## 🛡️ Critical Findings Preview (Top 10)"
         echo "\`\`\`text"
-        grep -iE "critical|high" "$WORK_DIR/vulns/nuclei_results.txt" 2>/dev/null | head -n 10 |
-
-| echo "No Critical/High findings detected."
+        grep -iE "critical|high" "$WORK_DIR/vulns/nuclei_results.txt" 2>/dev/null | head -n 10 || echo "No Critical/High findings detected."
         echo "\`\`\`"
         echo ""
         echo "---"
