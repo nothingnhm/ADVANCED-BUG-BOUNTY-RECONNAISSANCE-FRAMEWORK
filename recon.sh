@@ -62,9 +62,12 @@ run_verbose() {
         log "${CYAN}" "CMD" "Executing: $cmd"
         eval "$cmd" 2>&1 | while IFS= read -r line; do
             echo -e "${CYAN}  → ${NC}$line"
-            [[ -n "$LOG_FILE" ]] && echo "  → $line" >> "$LOG_FILE"
+            if [[ -n "$LOG_FILE" ]]; then
+                echo "  → $line" >> "$LOG_FILE"
+            fi
         done
-        return ${PIPESTATUS[0]}
+        local exit_code="${PIPESTATUS[0]}"
+        return "$exit_code"
     else
         eval "$cmd" 2>>"$LOG_FILE" || true
     fi
@@ -223,7 +226,9 @@ module_live_validation() {
                 -status-code -title -tech-detect -follow-redirects \
                 -json -o "$WORK_DIR/live/httpx_full.json" 2>&1 | while IFS= read -r line; do
                     echo -e "${CYAN}  → ${NC}$line"
-                    [[ -n "$LOG_FILE" ]] && echo "  → $line" >> "$LOG_FILE"
+                    if [[ -n "$LOG_FILE" ]]; then
+                        echo "  → $line" >> "$LOG_FILE"
+                    fi
                 done || true
         else
             httpx -l "$INPUT_SUBS" \
@@ -321,7 +326,9 @@ module_url_discovery() {
         if [[ "$VERBOSE" == true ]]; then
             cat "$INPUT_HOSTS" | gau --threads "$THREADS" --blacklist ttf,woff,svg,png,jpg 2>&1 | while IFS= read -r line; do
                 echo -e "${CYAN}  → ${NC}$line"
-                [[ -n "$LOG_FILE" ]] && echo "  → $line" >> "$LOG_FILE"
+                if [[ -n "$LOG_FILE" ]]; then
+                    echo "  → $line" >> "$LOG_FILE"
+                fi
                 echo "$line" >> "$ALL_URLS"
             done || true
         else
@@ -335,7 +342,9 @@ module_url_discovery() {
         if [[ "$VERBOSE" == true ]]; then
             cat "$INPUT_HOSTS" | waybackurls 2>&1 | while IFS= read -r line; do
                 echo -e "${CYAN}  → ${NC}$line"
-                [[ -n "$LOG_FILE" ]] && echo "  → $line" >> "$LOG_FILE"
+                if [[ -n "$LOG_FILE" ]]; then
+                    echo "  → $line" >> "$LOG_FILE"
+                fi
                 echo "$line" >> "$ALL_URLS"
             done || true
         else
@@ -412,7 +421,9 @@ module_vuln_scan() {
                        -et "$EXCLUDE_TAGS" -c "$THREADS" -v \
                        -o "$OUT_VULNS" 2>&1 | while IFS= read -r line; do
                            echo -e "${CYAN}  → ${NC}$line"
-                           [[ -n "$LOG_FILE" ]] && echo "  → $line" >> "$LOG_FILE"
+                           if [[ -n "$LOG_FILE" ]]; then
+                               echo "  → $line" >> "$LOG_FILE"
+                           fi
                        done || true
             else
                 nuclei -l "$INPUT_URLS" -severity critical,high,medium,low,info \
@@ -428,7 +439,9 @@ module_vuln_scan() {
                        -et "$EXCLUDE_TAGS" -c "$THREADS" -v \
                        -o "$OUT_VULNS" 2>&1 | while IFS= read -r line; do
                            echo -e "${CYAN}  → ${NC}$line"
-                           [[ -n "$LOG_FILE" ]] && echo "  → $line" >> "$LOG_FILE"
+                           if [[ -n "$LOG_FILE" ]]; then
+                               echo "  → $line" >> "$LOG_FILE"
+                           fi
                        done || true
             else
                 nuclei -l "$INPUT_URLS" -tags "$TEMPLATE_TAGS" \
